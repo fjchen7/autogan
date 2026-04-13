@@ -40,7 +40,7 @@ write_default_config() {
   "maxRepairCount": 3,
   "confirmDiscardOnRestart": true,
   "generator": {
-    "command": "opencode --agent generator",
+    "command": "opencode",
     "env": {
       "OPENCODE_PERMISSION": {
         "*": "allow"
@@ -49,7 +49,7 @@ write_default_config() {
     "type": "opencode"
   },
   "evaluator": {
-    "command": "claude --agent evaluator --dangerously-skip-permissions",
+    "command": "claude --dangerously-skip-permissions",
     "env": {},
     "type": "claude"
   }

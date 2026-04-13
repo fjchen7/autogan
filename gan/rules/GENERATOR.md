@@ -1,73 +1,25 @@
-本文档用于指导 Generator 的行为。
+This document guides the Generator's behavior.
 
-## 合同的作用
+## Contract
 
-用户给出的是目标和要求，不一定已经拆成当前轮任务。generator 需要主动判断这一轮最值得做什么，并把这个判断收束成一个清楚、可验收、可评审的 `contract.md`。
+The Generator must actively decide what is worth doing in each round based on the user's goal, and turn that into a clear, reviewable, and testable `contract.md`.
 
-Generator的任务不是照抄用户原话，而是：
+During the contract phase, the Generator must think and judge proactively, exploring better ways to scope the round and move the work forward instead of copying the user's wording or making mechanical patch-ups.
 
-- 在不违背用户目标和明确要求的前提下。
-- 主动判断这一轮最值得做什么。
-- 多 brainstorm，探索更好的切法和推进方向。
-- 最终把想法收束成一个 evaluator 可以评审的合同。
+Each round should contain a deliverable stage result, not a vague goal or an overly fragmented task list.
 
-## 合同应满足的要求
+## Rewrites Are Allowed
 
-### 1. 当前轮要有完整的阶段成果
+If the current direction is wrong, you may discard the existing implementation and rebuild it. Do not carry unnecessary historical baggage.
 
-不要把每轮切成过小的碎片任务。每一轮的任务量要足够大，能形成一个完整、可交付、可评审的阶段成果。
+Situations that may justify a rewrite include, but are not limited to:
 
-这一轮可以包含新功能、重构、删减、优化、结构调整、体验改进，或者方向修正。关键不在于工作量大小，而在于：
-- 它是否仍然服务于用户目标。
-- 它是否能形成一个完整的阶段成果。
+- The current direction has clearly drifted away from the user's original request.
+- Local patches would only make the structure messier.
+- The current contract can no longer be rescued with small fixes.
+- There is a better direction, and it is closer to the user's real goal.
 
-### 2. `Goal` 可以详细，但不能发散
+If you decide to rewrite:
 
-`Goal` 应清楚说明这一轮想解决的问题和预期结果。
-- 目标可以详细。
-- 目标不能发散成多个互不相关的方向。
-
-### 3. `Expectation` 只写大致验收方向
-
-`Expectation` 不需要写成细碎的测试清单。它更像这一轮完成后大致应该达到什么方向和效果。
-- 可以写清楚。
-- 不要写成过细的测试步骤。
-- 具体如何验收、如何测试、如何找问题，由 evaluator 决定。
-
-### 4. 先大胆想，再收束成合同
-
-在合同阶段，generator 应该充分思考：
-- 当前实现和功能现状是什么。
-- 这一轮更适合加功能、收范围、重构、删减，还是调整方向。
-- 哪种切法最贴近用户目标。
-- 是否已有成熟方案可参考，避免重复造轮子。
-
-但最终必须收束成清楚的 `Goal`、`Expectation` 和 `Notes`。
-
-## 允许重写的情况
-
-如果判断当前方向有问题，可以推倒之前的实现，重新实现，不必背历史包袱。
-
-适合重写的情况包括：
-
-- 当前方向已经明显偏离用户原始需求。
-- 局部修补只会让结构更乱。
-- 当前合同已经无法通过小修补救回来。
-- 有更好的方向，而且这个方向更贴近用户目标。
-
-如果决定重写：
-
-- 必须把原因写进 `contract.md > Notes`，或当前轮 `review.md > Generator > Note`。
-- 必须说明为什么重写后更贴近用户目标。
-
-## 可以主动结束当前轮的情况
-
-如果 generator 判断当前轮设计方向已经不值得继续做下去，可以主动结束当前轮，而不是继续无意义修补。
-
-这时需要：
-1. 在 `review.md > Generator > Note` 里写清楚原因。
-2. 将 `summary.json` 中当前轮对应记录的 `result` 改为 `BLOCKED`。
-3. 将 `state.json` 中当前轮的 `status` 改为 `ROUND_DONE`。
-4. 做一次 git 提交，留下存档点。
-
-这样做的目的，是明确告诉 orchestrator：当前轮不是“还需要修”，而是“这一轮方向不对，应结束当前轮并重新开始下一轮”。
+- You must write the reason in `contract.md > Notes` or in the current round's `review.md > Generator > Note`.
+- You must explain why the rewrite is closer to the user's goal.

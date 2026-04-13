@@ -7,30 +7,32 @@ GAN_DIR="$ROOT_DIR/.gan"
 CURRENT_DIR="$GAN_DIR/current"
 ROUNDS_DIR="$GAN_DIR/rounds"
 CONFIG_FILE="$GAN_DIR/config.json"
-INSTALL_SCRIPT="$ROOT_DIR/install.sh"
 STATE_FILE="$GAN_DIR/state.json"
 HISTORY_FILE="$GAN_DIR/history.json"
-SUMMARY_FILE="$GAN_DIR/summary.json"
+WORKFLOW_RULE_FILE="$GAN_DIR/rules/WORKFLOW.md"
+FILES_RULE_FILE="$GAN_DIR/rules/FILES.md"
+GENERATOR_RULE_FILE="$GAN_DIR/rules/GENERATOR.md"
+EVALUATOR_RULE_FILE="$GAN_DIR/rules/EVALUATOR.md"
 LOOP_SECONDS=30
 DIRTY_LIMIT=20
 PANE_READY_SLEEP=8
 
-GENERATOR_PROMPT_PREFIX='你是Generator，现在处于GAN工作流中。在完成工作后，请**git commit这一轮的产物，确保git status干净**，才能交棒。'
-EVALUATOR_PROMPT_PREFIX='你是Evaluator，现在处于GAN工作流中。在完成工作后，请**git commit这一轮的产物，确保git status干净**，才能交棒。'
+GENERATOR_PROMPT_PREFIX='You are the Generator, currently working inside the GAN workflow. After you finish your work, you must **git commit the deliverables for this round and make sure git status is clean** before handing off.'
+EVALUATOR_PROMPT_PREFIX='You are the Evaluator, currently working inside the GAN workflow. After you finish your work, you must **git commit the deliverables for this round and make sure git status is clean** before handing off.'
 
 declare -A PROMPTS=()
 
-PROMPTS[generator_round_start]="${GENERATOR_PROMPT_PREFIX}"$'\n\n用户原始需求：\n```\n%s\n```\n\n请围绕用户的原始需求推进当前轮工作。\n\n当前是 Round %s。请读取 .gan 目录下的 state.json、summary.json、current/ 目录的文件，开始当前轮的合同阶段。'
+PROMPTS[generator_round_start]="${GENERATOR_PROMPT_PREFIX}"$'\n\nOriginal user request:\n```\n%s\n```\n\nAdvance this round of work around the user'\''s original request.\n\nThis is Round %s. Read the files in `.gan/state.json`, `.gan/summary.json`, and `.gan/current/`, then begin the contract phase for this round.'
 
-PROMPTS[generator_contract_revision]="${GENERATOR_PROMPT_PREFIX}"$'\n\nRound %s 的合同需要修改。请读取 .gan 目录下的 state.json、summary.json，以及 .gan/current/ 目录中的文件，反馈后交棒。'
+PROMPTS[generator_contract_revision]="${GENERATOR_PROMPT_PREFIX}"$'\n\nThe contract for Round %s needs revision. Read `.gan/state.json`, `.gan/summary.json`, and the files in `.gan/current/`, then respond and hand off.'
 
-PROMPTS[generator_implementation]="${GENERATOR_PROMPT_PREFIX}"$'\n\n用户原始需求：\n```\n%s\n```\n\nRound %s 的合同已批准。请读取用户原始需求、.gan 目录下的 state.json、summary.json，以及 .gan/current/ 目录中的文件，开始实现当前轮目标。'
+PROMPTS[generator_implementation]="${GENERATOR_PROMPT_PREFIX}"$'\n\nOriginal user request:\n```\n%s\n```\n\nThe contract for Round %s has been approved. Read the original user request, `.gan/state.json`, `.gan/summary.json`, and the files in `.gan/current/`, then start implementing this round'\''s goal.'
 
-PROMPTS[generator_implement_revision]="${GENERATOR_PROMPT_PREFIX}"$'\n\nRound %s 的实现需要修复。请读取 .gan 目录下的 state.json、summary.json，以及 .gan/current/ 目录中的文件，修复后交棒。'
+PROMPTS[generator_implement_revision]="${GENERATOR_PROMPT_PREFIX}"$'\n\nThe implementation for Round %s needs fixes. Read `.gan/state.json`, `.gan/summary.json`, and the files in `.gan/current/`, then fix the issues and hand off.'
 
-PROMPTS[evaluator_contract]="${EVALUATOR_PROMPT_PREFIX}"$'\n\n用户原始需求：\n```\n%s\n```\n\n请你用**批判式的思维和最严格的标准**评审 Round %s 的合同。读取 .gan 目录下的 state.json、summary.json 和 current/ 目录中的文件，进行审阅，反馈并交棒。'
+PROMPTS[evaluator_contract]="${EVALUATOR_PROMPT_PREFIX}"$'\n\nOriginal user request:\n```\n%s\n```\n\nReview the Round %s contract with **critical thinking and the strictest standards**. Read `.gan/state.json`, `.gan/summary.json`, and the files in `.gan/current/`, then review, leave feedback, and hand off.'
 
-PROMPTS[evaluator_implementation]="${EVALUATOR_PROMPT_PREFIX}"$'\n\n用户原始需求：\n```\n%s\n```\n\n请你用**批判式的思维和最严格的标准**评审 Round %s 的实现结果，UI和功能实现都要评审。请不要只读代码，模仿用户的真实行为去评审。读取 .gan 目录下的 state.json、summary.json 和 current/ 目录中的文件，进行审阅，反馈并交棒。'
+PROMPTS[evaluator_implementation]="${EVALUATOR_PROMPT_PREFIX}"$'\n\nOriginal user request:\n```\n%s\n```\n\nReview the implementation for Round %s with **critical thinking and the strictest standards**. Review both the UI and the functional implementation. Do not stop at reading code; evaluate it by imitating real user behavior. Read `.gan/state.json`, `.gan/summary.json`, and the files in `.gan/current/`, then review, leave feedback, and hand off.'
 
 show_help() {
   cat <<'EOF'
@@ -96,18 +98,140 @@ build_env_assignments() {
   '
 }
 
-compose_agent_command() {
-  local command="$1"
-  local env_json="$2"
+build_system_prompt() {
+  local role="$1"
+  local role_rule_file=""
+
+  case "$role" in
+    generator)
+      role_rule_file="$GENERATOR_RULE_FILE"
+      ;;
+    evaluator)
+      role_rule_file="$EVALUATOR_RULE_FILE"
+      ;;
+    *)
+      printf 'Unknown role for system prompt: %s\n' "$role" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ ! -f "$WORKFLOW_RULE_FILE" ] || [ ! -f "$FILES_RULE_FILE" ] || [ ! -f "$role_rule_file" ]; then
+    printf 'Missing system prompt rule files for role %s\n' "$role" >&2
+    exit 1
+  fi
+
+  cat "$WORKFLOW_RULE_FILE"
+  printf '\n\n'
+  cat "$FILES_RULE_FILE"
+  printf '\n\n'
+  cat "$role_rule_file"
+}
+
+build_system_prompt_export_command() {
+  local role="$1"
+
+  case "$role" in
+    generator)
+      printf '%s\n' "export GAN_SYSTEM_PROMPT=\"\$({ cat .gan/rules/WORKFLOW.md; printf '\\n\\n'; cat .gan/rules/FILES.md; printf '\\n\\n'; cat .gan/rules/GENERATOR.md; })\""
+      ;;
+    evaluator)
+      printf '%s\n' "export GAN_SYSTEM_PROMPT=\"\$({ cat .gan/rules/WORKFLOW.md; printf '\\n\\n'; cat .gan/rules/FILES.md; printf '\\n\\n'; cat .gan/rules/EVALUATOR.md; })\""
+      ;;
+    *)
+      printf 'Unknown role for system prompt export: %s\n' "$role" >&2
+      exit 1
+      ;;
+  esac
+}
+
+build_opencode_config_export_command() {
+  local role="$1"
+  local config_content=""
+
+  case "$role" in
+    generator)
+      config_content='{"instructions":[".gan/rules/WORKFLOW.md",".gan/rules/FILES.md",".gan/rules/GENERATOR.md"]}'
+      ;;
+    evaluator)
+      config_content='{"instructions":[".gan/rules/WORKFLOW.md",".gan/rules/FILES.md",".gan/rules/EVALUATOR.md"]}'
+      ;;
+    *)
+      printf 'Unknown role for opencode config export: %s\n' "$role" >&2
+      exit 1
+      ;;
+  esac
+
+  printf "export OPENCODE_CONFIG_CONTENT='%s'\n" "$config_content"
+}
+
+build_agent_startup_commands() {
+  local role="$1"
+  local type="$2"
+  local env_json="$3"
+  local commands=()
   local env_assignments
 
   env_assignments="$(build_env_assignments "$env_json")"
 
-  if [ -z "$env_assignments" ]; then
-    printf '%s\n' "$command"
-  else
-    printf '%s %s\n' "$env_assignments" "$command"
+  if [ -n "$env_assignments" ]; then
+    commands+=("export $env_assignments")
   fi
+
+  case "$type" in
+    codex|claude)
+      commands+=("$(build_system_prompt_export_command "$role")")
+      ;;
+    opencode)
+      commands+=("$(build_opencode_config_export_command "$role")")
+      ;;
+    *)
+      printf 'Unsupported agent type for startup commands: %s\n' "$type" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ ${#commands[@]} -eq 0 ]; then
+    printf '%s\n' 'true'
+  else
+    printf '%s\n' "${commands[@]}"
+  fi
+}
+
+build_agent_shell_bootstrap() {
+  local startup_commands="$1"
+  local bootstrap_script=""
+  local line
+
+  while IFS= read -r line; do
+    if [ -n "$line" ]; then
+      bootstrap_script+="$line; "
+    fi
+  done <<EOF
+$startup_commands
+EOF
+
+  printf '%s exec "$SHELL" -i' "$bootstrap_script"
+}
+
+build_agent_launch_command() {
+  local type="$1"
+  local command="$2"
+
+  case "$type" in
+    codex)
+      printf '%s -c %q\n' "$command" 'developer_instructions="$GAN_SYSTEM_PROMPT"'
+      ;;
+    claude)
+      printf '%s --append-system-prompt "$GAN_SYSTEM_PROMPT"\n' "$command"
+      ;;
+    opencode)
+      printf '%s\n' "$command"
+      ;;
+    *)
+      printf 'Unsupported agent type for launch command: %s\n' "$type" >&2
+      exit 1
+      ;;
+  esac
 }
 
 read_config() {
@@ -155,18 +279,21 @@ read_config() {
     exit 1
   fi
 
-  if ! jq -e --arg type "$GENERATOR_TYPE" --argjson allowed "$allowed_agent_types" '$allowed | index($type)' >/dev/null; then
+  if ! jq -ne --arg type "$GENERATOR_TYPE" --argjson allowed "$allowed_agent_types" '$allowed | index($type) != null' >/dev/null; then
     printf 'Invalid generator.type: %s. Allowed values: opencode, claude, codex\n' "$GENERATOR_TYPE" >&2
     exit 1
   fi
 
-  if ! jq -e --arg type "$EVALUATOR_TYPE" --argjson allowed "$allowed_agent_types" '$allowed | index($type)' >/dev/null; then
+  if ! jq -ne --arg type "$EVALUATOR_TYPE" --argjson allowed "$allowed_agent_types" '$allowed | index($type) != null' >/dev/null; then
     printf 'Invalid evaluator.type: %s. Allowed values: opencode, claude, codex\n' "$EVALUATOR_TYPE" >&2
     exit 1
   fi
 
-  GENERATOR_COMMAND="$(compose_agent_command "$GENERATOR_COMMAND" "$generator_env_json")"
-  EVALUATOR_COMMAND="$(compose_agent_command "$EVALUATOR_COMMAND" "$evaluator_env_json")"
+  GENERATOR_STARTUP_COMMANDS="$(build_agent_startup_commands "generator" "$GENERATOR_TYPE" "$generator_env_json")"
+  EVALUATOR_STARTUP_COMMANDS="$(build_agent_startup_commands "evaluator" "$EVALUATOR_TYPE" "$evaluator_env_json")"
+
+  GENERATOR_COMMAND="$(build_agent_launch_command "$GENERATOR_TYPE" "$GENERATOR_COMMAND")"
+  EVALUATOR_COMMAND="$(build_agent_launch_command "$EVALUATOR_TYPE" "$EVALUATOR_COMMAND")"
 
   debug_log "loaded config: maxRounds=$MAX_ROUNDS maxRepairCount=$MAX_REPAIR_COUNT generatorType=$GENERATOR_TYPE evaluatorType=$EVALUATOR_TYPE"
 }
@@ -246,23 +373,21 @@ confirm_discard_if_needed() {
 }
 
 start_agent_pane() {
-  local command="$1"
-  local pane_id="$2"
-  tmux send-keys -t "$pane_id" "cd \"$ROOT_DIR\"" C-m
-  sleep 1
+  local pane_id="$1"
+  local command="$2"
   tmux send-keys -t "$pane_id" "$command" C-m
   debug_log "started pane $pane_id with command: $command"
 }
 
 init_agent_panes() {
   local pane_id
-  pane_id="$(tmux split-window -v -b -d -P -F '#{pane_id}')"
+  pane_id="$(tmux split-window -v -b -d -c "$ROOT_DIR" -P -F '#{pane_id}' "$(build_agent_shell_bootstrap "$GENERATOR_STARTUP_COMMANDS")")"
   GENERATOR_PANE="$pane_id"
-  pane_id="$(tmux split-window -h -d -t "$GENERATOR_PANE" -P -F '#{pane_id}')"
+  pane_id="$(tmux split-window -h -d -t "$GENERATOR_PANE" -c "$ROOT_DIR" -P -F '#{pane_id}' "$(build_agent_shell_bootstrap "$EVALUATOR_STARTUP_COMMANDS")")"
   EVALUATOR_PANE="$pane_id"
 
-  start_agent_pane "$GENERATOR_COMMAND" "$GENERATOR_PANE"
-  start_agent_pane "$EVALUATOR_COMMAND" "$EVALUATOR_PANE"
+  start_agent_pane "$GENERATOR_PANE" "$GENERATOR_COMMAND"
+  start_agent_pane "$EVALUATOR_PANE" "$EVALUATOR_COMMAND"
 }
 
 send_to_pane() {
